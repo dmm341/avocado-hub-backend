@@ -31,10 +31,10 @@ router.get("/dropdown", (req, res) => {
  *  ADD NEW FARMER
  * ============================ */
 router.post("/", (req, res) => {
-  const { name, contact, location, avocado_type, total_fruits, total_money } = req.body;
-  const query = "INSERT INTO farmers (name, contact, location, avocado_type, total_fruits, total_money) VALUES (?, ?, ?, ?, ?, ?)";
+  const { name, contact, location} = req.body;
+  const query = "INSERT INTO farmers (name, contact, location) VALUES (?, ?, ?)";
 
-  db.query(query, [name, contact, location, avocado_type, total_fruits, total_money], (err, result) => {
+  db.query(query, [name, contact, location], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     res.status(201).json({ message: "Farmer added successfully!" });
   });
@@ -45,10 +45,10 @@ router.post("/", (req, res) => {
  * ============================ */
 router.put("/:id", (req, res) => {
   const { id } = req.params;
-  const { name, contact, location, avocado_type, total_fruits, total_money } = req.body;
-  const query = "UPDATE farmers SET name=?, contact=?, location=?, avocado_type=?, total_fruits=?, total_money=? WHERE id=?";
+  const { name, contact, location } = req.body;
+  const query = "UPDATE farmers SET name=?, contact=?, location=? WHERE id=?";
   
-  db.query(query, [name, contact, location, avocado_type, total_fruits, total_money, id], (err, result) => {
+  db.query(query, [name, contact, location,  id], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ message: "Farmer updated successfully!" });
   });
