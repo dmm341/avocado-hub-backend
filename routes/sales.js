@@ -6,54 +6,46 @@ const router = express.Router();
  *  CREATE NEW SALE
  * ============================ */
 router.post("/", (req, res) => {
-  const { buyerId, numberOfFruits, pricePerFruit, totalAmount, saleDate } = req.body;
+  const { buyerId, avocadoType, customerName, numberOfFruits, pricePerFruit, totalAmount } = req.body;
 
-  if (!buyerId || !numberOfFruits || !pricePerFruit || !totalAmount || !saleDate) {
+  if (!buyerId || !avocadoType || !numberOfFruits || !pricePerFruit || !totalAmount) {
     return res.status(400).json({ message: "All fields are required." });
   }
 
-  // Step 1: Record the sale
   const insertSaleQuery = `
-    INSERT INTO sales (buyer_id, number_of_fruits, price_per_fruit, total_amount, sale_date)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO sales 
+    (buyer_id, avocado_type, customer_name, number_of_fruits, price_per_fruit, total_amount) 
+    VALUES (?, ?, ?, ?, ?, ?)
   `;
 
-  db.query(insertSaleQuery, [buyerId, numberOfFruits, pricePerFruit, totalAmount, saleDate], (err, result) => {
-    if (err) return res.status(500).json({ message: "Failed to record sale." });
+  db.query(insertSaleQuery, 
+    [buyerId, avocadoType, customerName, numberOfFruits, pricePerFruit, totalAmount], 
+    (err, result) => {
+      if (err) return res.status(500).json({ message: "Failed to record sale." });
 
-    // Step 2: Update the buyer's total fruits and total money
-    const updateBuyerQuery = `
-      UPDATE buyers
-      SET total_fruits = total_fruits + ?, total_money = total_money + ?
-      WHERE id = ?
-    `;
+      const updateField = avocadoType.toLowerCase(); // 'hass' or 'fuerte'
+      const updateBuyerQuery = `
+        UPDATE buyers 
+        SET ${updateField}_fruits = ${updateField}_fruits + ?, 
+            ${updateField}_money = ${updateField}_money + ?, 
+            total_fruits = total_fruits + ?,
+            total_money = total_money + ?
+        WHERE id = ?
+      `;
 
-    db.query(updateBuyerQuery, [numberOfFruits, totalAmount, buyerId], (err, result) => {
-      if (err) return res.status(500).json({ message: "Failed to update buyer." });
-
-      res.status(201).json({ message: "Sale recorded and buyer updated successfully!" });
-    });
-  });
+      db.query(updateBuyerQuery, 
+        [numberOfFruits, totalAmount, numberOfFruits, totalAmount, buyerId], 
+        (err) => {
+          if (err) return res.status(500).json({ message: "Failed to update buyer." });
+          res.status(201).json({ message: "Sale recorded and buyer updated!" });
+        }
+      );
+    }
+  );
 });
 
 /** ============================
- *  GET ALL SALES
- * ============================ */
-router.get("/", (req, res) => {
-  const query = `
-    SELECT sales.id, buyers.name AS buyer_name, sales.number_of_fruits, sales.price_per_fruit, sales.total_amount, sales.sale_date
-    FROM sales
-    JOIN buyers ON sales.buyer_id = buyers.id
-    ORDER BY sales.sale_date DESC
-  `;
-  db.query(query, (err, results) => {
-    if (err) return res.status(500).json({ message: "Failed to fetch sales." });
-    res.json(results);
-  });
-});
-
-/** ============================
- *  UPDATE SALE
+ *  UPDATE SALE (EDIT)
  * ============================ */
 router.put("/:id", (req, res) => {
   const { id } = req.params;
@@ -63,8 +55,8 @@ router.put("/:id", (req, res) => {
     return res.status(400).json({ message: "All fields are required." });
   }
 
-  // Fetch the existing sale to calculate the difference
-  const fetchSaleQuery = "SELECT buyer_id, number_of_fruits, total_amount FROM sales WHERE id = ?";
+  // Fetch the existing sale including avocado_type
+  const fetchSaleQuery = "SELECT buyer_id, avocado_type, number_of_fruits, total_amount FROM sales WHERE id = ?";
   db.query(fetchSaleQuery, [id], (err, saleResults) => {
     if (err) return res.status(500).json({ message: "Failed to fetch sale." });
 
@@ -73,7 +65,8 @@ router.put("/:id", (req, res) => {
     }
 
     const existingSale = saleResults[0];
-    const BuyerId = existingSale.buyer_id;
+    const buyerId = existingSale.buyer_id;
+    const updateField = existingSale.avocado_type.toLowerCase();
 
     // Calculate the difference
     const fruitDifference = numberOfFruits - existingSale.number_of_fruits;
@@ -82,39 +75,47 @@ router.put("/:id", (req, res) => {
     // Update the sale
     const updateSaleQuery = `
       UPDATE sales 
-      SET  number_of_fruits = ?, price_per_fruit = ?, total_amount = ?
+      SET number_of_fruits = ?, price_per_fruit = ?, total_amount = ?
       WHERE id = ?
     `;
     
-    db.query(updateSaleQuery, [ numberOfFruits, pricePerFruit, totalAmount, id], (err) => {
+    db.query(updateSaleQuery, [numberOfFruits, pricePerFruit, totalAmount, id], (err) => {
       if (err) return res.status(500).json({ message: "Failed to update sale." });
 
+      // Update the buyer's totals
       const updateBuyerQuery = `
-        UPDATE buyers
-        SET total_fruits = total_fruits + ?, total_money = total_money + ?
+        UPDATE buyers 
+        SET ${updateField}_fruits = ${updateField}_fruits + ?, 
+            ${updateField}_money = ${updateField}_money + ?,
+            total_fruits = total_fruits + ?,
+            total_money = total_money + ?
         WHERE id = ?
       `;
-      db.query(updateBuyerQuery, [fruitDifference, moneyDifference, BuyerId], (err) => {
-        if (err) return res.status(500).json({ message: "Failed to update buyer." });
-        res.status(200).json({ message: "Sale updated and buyer updated successfully!" });
-      });
+      
+      db.query(updateBuyerQuery, 
+        [fruitDifference, moneyDifference, fruitDifference, moneyDifference, buyerId], 
+        (err) => {
+          if (err) return res.status(500).json({ message: "Failed to update buyer." });
+          res.status(200).json({ message: "Sale and buyer updated successfully!" });
+        }
+      );
     });
-  }); 
+  });
 });
+
 /** ============================
  *  DELETE SALE
  * ============================ */
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
 
-  // 1. First, fetch the sale details
-  const fetchSaleQuery = `
-    SELECT buyer_id, number_of_fruits, total_amount 
-    FROM sales 
-    WHERE id = ?
+  // Get the sale details including avocado_type
+  const getSaleQuery = `
+    SELECT buyer_id, avocado_type, number_of_fruits, total_amount 
+    FROM sales WHERE id = ?
   `;
-
-  db.query(fetchSaleQuery, [id], (err, saleResults) => {
+  
+  db.query(getSaleQuery, [id], (err, saleResults) => {
     if (err) return res.status(500).json({ message: "Failed to fetch sale details." });
     
     if (saleResults.length === 0) {
@@ -122,32 +123,48 @@ router.delete("/:id", (req, res) => {
     }
 
     const sale = saleResults[0];
-
-    // 2. Delete the sale
+    const updateField = sale.avocado_type.toLowerCase();
+    
+    // Delete the sale
     const deleteQuery = "DELETE FROM sales WHERE id = ?";
     db.query(deleteQuery, [id], (err, result) => {
       if (err) return res.status(500).json({ message: "Failed to delete sale." });
 
-      // 3. Update the buyer's totals
+      // Update the buyer's totals
       const updateBuyerQuery = `
         UPDATE buyers 
-        SET total_fruits = total_fruits - ?, 
-            total_money = total_money - ? 
+        SET ${updateField}_fruits = ${updateField}_fruits - ?, 
+            ${updateField}_money = ${updateField}_money - ?,
+            total_fruits = total_fruits - ?,
+            total_money = total_money - ?
         WHERE id = ?
       `;
-
-      db.query(updateBuyerQuery, [sale.number_of_fruits, sale.total_amount, sale.buyer_id], (err) => {
-        if (err) {
-          return res.status(500).json({ 
+      
+      db.query(updateBuyerQuery, 
+        [sale.number_of_fruits, sale.total_amount, sale.number_of_fruits, sale.total_amount, sale.buyer_id], 
+        (err) => {
+          if (err) return res.status(500).json({ 
             message: "Sale deleted but failed to update buyer totals." 
           });
+          
+          res.status(200).json({ 
+            message: "Sale deleted and buyer totals updated successfully!" 
+          });
         }
-
-        res.status(200).json({ 
-          message: "Sale deleted and buyer totals updated successfully!" 
-        });
-      });
+      );
     });
   });
 });
+
+/** ============================
+ *  GET ALL SALES
+ * ============================ */
+router.get("/", (req, res) => {
+  const query = "SELECT * FROM sales ORDER BY sale_date DESC";
+  db.query(query, (err, results) => {
+    if (err) return res.status(500).json({ message: "Failed to fetch sales." });
+    res.json(results);
+  });
+});
+
 module.exports = router;

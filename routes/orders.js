@@ -6,40 +6,44 @@ const router = express.Router();
  *  CREATE NEW ORDER
  * ============================ */
 router.post("/", (req, res) => {
-  const { farmerId, numberOfFruits, pricePerFruit, totalAmount } = req.body;
+  const { farmerId, avocadoType, customerName, numberOfFruits, pricePerFruit, totalAmount } = req.body;
 
-  if (!farmerId || !numberOfFruits || !pricePerFruit || !totalAmount) {
+  if (!farmerId || !avocadoType || !numberOfFruits || !pricePerFruit || !totalAmount) {
     return res.status(400).json({ message: "All fields are required." });
   }
 
-  const fetchFarmerQuery = "SELECT name, total_fruits, total_money FROM farmers WHERE id = ?";
-  db.query(fetchFarmerQuery, [farmerId], (err, results) => {
-    if (err) return res.status(500).json({ message: "Failed to fetch farmer data." });
+  const insertOrderQuery = `
+    INSERT INTO orders 
+    (farmer_id, avocado_type, customer_name, number_of_fruits, price_per_fruit, total_amount) 
+    VALUES (?, ?, ?, ?, ?, ?)
+  `;
 
-    if (results.length === 0) {
-      return res.status(404).json({ message: "Farmer not found." });
-    }
-
-    const farmer = results[0];
-    const customerName = farmer.name;
-
-    const insertOrderQuery =
-      "INSERT INTO orders (farmer_id, customer_name, number_of_fruits, price_per_fruit, total_amount) VALUES (?, ?, ?, ?, ?)";
-
-    db.query(insertOrderQuery, [farmerId, customerName, numberOfFruits, pricePerFruit, totalAmount], (err, result) => {
+  db.query(insertOrderQuery, 
+    [farmerId, avocadoType, customerName, numberOfFruits, pricePerFruit, totalAmount], 
+    (err, result) => {
       if (err) return res.status(500).json({ message: "Failed to record order." });
 
-      const updateFarmerQuery =
-        "UPDATE farmers SET total_fruits = total_fruits + ?, total_money = total_money + ? WHERE id = ?";
+      const updateField = avocadoType.toLowerCase(); // 'hass' or 'fuerte'
+      const updateFarmerQuery = `
+        UPDATE farmers 
+        SET ${updateField}_fruits = ${updateField}_fruits + ?, 
+            ${updateField}_money = ${updateField}_money + ?, 
+            total_fruits = total_fruits + ?,
+            total_money = total_money + ?
+        WHERE id = ?
+      `;
 
-      db.query(updateFarmerQuery, [numberOfFruits, totalAmount, farmerId], (err) => {
-        if (err) return res.status(500).json({ message: "Failed to update farmer." });
-
-        res.status(201).json({ message: "Order recorded and farmer updated!" });
-      });
-    });
-  });
+      db.query(updateFarmerQuery, 
+        [numberOfFruits, totalAmount, numberOfFruits, totalAmount, farmerId], 
+        (err) => {
+          if (err) return res.status(500).json({ message: "Failed to update farmer." });
+          res.status(201).json({ message: "Order recorded and farmer updated!" });
+        }
+      );
+    }
+  );
 });
+
 /** ============================
  *  UPDATE ORDER (EDIT)
  * ============================ */
@@ -51,8 +55,8 @@ router.put("/:id", (req, res) => {
     return res.status(400).json({ message: "All fields are required." });
   }
 
-  // Fetch the existing order to calculate the difference
-  const fetchOrderQuery = "SELECT farmer_id, number_of_fruits, total_amount FROM orders WHERE id = ?";
+  // Fetch the existing order including avocado_type
+  const fetchOrderQuery = "SELECT farmer_id, avocado_type, number_of_fruits, total_amount FROM orders WHERE id = ?";
   db.query(fetchOrderQuery, [id], (err, orderResults) => {
     if (err) return res.status(500).json({ message: "Failed to fetch order." });
 
@@ -62,6 +66,7 @@ router.put("/:id", (req, res) => {
 
     const existingOrder = orderResults[0];
     const farmerId = existingOrder.farmer_id;
+    const updateField = existingOrder.avocado_type.toLowerCase();
 
     // Calculate the difference
     const fruitDifference = numberOfFruits - existingOrder.number_of_fruits;
@@ -73,31 +78,42 @@ router.put("/:id", (req, res) => {
       SET number_of_fruits = ?, price_per_fruit = ?, total_amount = ?
       WHERE id = ?
     `;
+    
     db.query(updateOrderQuery, [numberOfFruits, pricePerFruit, totalAmount, id], (err) => {
       if (err) return res.status(500).json({ message: "Failed to update order." });
 
-      // Update the farmer's total fruits and total money
+      // Update the farmer's totals
       const updateFarmerQuery = `
         UPDATE farmers 
-        SET total_fruits = total_fruits + ?, total_money = total_money + ?
+        SET ${updateField}_fruits = ${updateField}_fruits + ?, 
+            ${updateField}_money = ${updateField}_money + ?,
+            total_fruits = total_fruits + ?,
+            total_money = total_money + ?
         WHERE id = ?
       `;
-      db.query(updateFarmerQuery, [fruitDifference, moneyDifference, farmerId], (err) => {
-        if (err) return res.status(500).json({ message: "Failed to update farmer." });
-
-        res.status(200).json({ message: "Order and farmer updated successfully!" });
-      });
+      
+      db.query(updateFarmerQuery, 
+        [fruitDifference, moneyDifference, fruitDifference, moneyDifference, farmerId], 
+        (err) => {
+          if (err) return res.status(500).json({ message: "Failed to update farmer." });
+          res.status(200).json({ message: "Order and farmer updated successfully!" });
+        }
+      );
     });
   });
 });
 
 /** ============================
  *  DELETE ORDER
- * ============================ */router.delete("/:id", (req, res) => {
+ * ============================ */
+router.delete("/:id", (req, res) => {
   const { id } = req.params;
 
-  // First get the order details before deleting
-  const getOrderQuery = "SELECT farmer_id, number_of_fruits, total_amount FROM orders WHERE id = ?";
+  // Get the order details including avocado_type
+  const getOrderQuery = `
+    SELECT farmer_id, avocado_type, number_of_fruits, total_amount 
+    FROM orders WHERE id = ?
+  `;
   
   db.query(getOrderQuery, [id], (err, orderResults) => {
     if (err) return res.status(500).json({ message: "Failed to fetch order details." });
@@ -107,25 +123,35 @@ router.put("/:id", (req, res) => {
     }
 
     const order = orderResults[0];
+    const updateField = order.avocado_type.toLowerCase();
     
-    // Now delete the order
+    // Delete the order
     const deleteQuery = "DELETE FROM orders WHERE id = ?";
     db.query(deleteQuery, [id], (err, result) => {
       if (err) return res.status(500).json({ message: "Failed to delete order." });
 
-      // Update the farmer's totals by subtracting the order values
+      // Update the farmer's totals
       const updateFarmerQuery = `
         UPDATE farmers 
-        SET total_fruits = total_fruits - ?, 
+        SET ${updateField}_fruits = ${updateField}_fruits - ?, 
+            ${updateField}_money = ${updateField}_money - ?,
+            total_fruits = total_fruits - ?,
             total_money = total_money - ?
         WHERE id = ?
       `;
       
-      db.query(updateFarmerQuery, [order.number_of_fruits, order.total_amount, order.farmer_id], (err) => {
-        if (err) return res.status(500).json({ message: "Order deleted but failed to update farmer totals." });
-        
-        res.status(200).json({ message: "Order deleted and farmer totals updated successfully!" });
-      });
+      db.query(updateFarmerQuery, 
+        [order.number_of_fruits, order.total_amount, order.number_of_fruits, order.total_amount, order.farmer_id], 
+        (err) => {
+          if (err) return res.status(500).json({ 
+            message: "Order deleted but failed to update farmer totals." 
+          });
+          
+          res.status(200).json({ 
+            message: "Order deleted and farmer totals updated successfully!" 
+          });
+        }
+      );
     });
   });
 });
