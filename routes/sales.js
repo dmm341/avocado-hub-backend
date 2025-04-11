@@ -5,22 +5,37 @@ const router = express.Router();
  * * ============================
  * *  CREATE NEW ORDER
  * * ============================
- */
-router.post("/", (req, res) => {
+ */router.post("/", (req, res) => {
   const { buyerId, avocadoType, buyerName, numberOfFruits, pricePerFruit, totalAmount } = req.body;
+  
+  console.log("Received sale data:", req.body); // Debug log
+
   if (!buyerId || !avocadoType || !numberOfFruits || !pricePerFruit || !totalAmount) {
-    return res.status(400).json({ message: "All fields are required." });
+    console.error("Missing required fields:", req.body);
+    return res.status(400).json({ 
+      message: "All fields are required.",
+      received: req.body 
+    });
   }
+
   const insertSaleQuery = `
     INSERT INTO sales 
-    (buyer_id, avocado_type, buyer_name, number_of_fruits, price_per_fruit, total_amount) 
-    VALUES (?, ?, ?, ?, ?, ?)
+    (buyer_id, avocado_type, buyer_name, number_of_fruits, price_per_fruit, total_amount, sale_date) 
+    VALUES (?, ?, ?, ?, ?, ?, NOW())
   `;
+  
   db.query(insertSaleQuery,
     [buyerId, avocadoType, buyerName, numberOfFruits, pricePerFruit, totalAmount],
     (err, result) => {
-      if (err) return res.status(500).json({ message: "Failed to record sale." });
-      const updateField = avocadoType.toLowerCase(); // 'hass' or 'fuerte'
+      if (err) {
+        console.error("Database error:", err);
+        return res.status(500).json({ 
+          message: "Failed to record sale.",
+          error: err.message 
+        });
+      }
+      
+      const updateField = avocadoType.toLowerCase();
       const updateBuyerQuery = `
         UPDATE buyers 
         SET ${updateField}_fruits = ${updateField}_fruits + ?, 
@@ -29,10 +44,17 @@ router.post("/", (req, res) => {
             total_money = total_money + ?
         WHERE id = ?
       `;
+      
       db.query(updateBuyerQuery,
         [numberOfFruits, totalAmount, numberOfFruits, totalAmount, buyerId],
         (err) => {
-          if (err) return res.status(500).json({ message: "Failed to update buyer." });
+          if (err) {
+            console.error("Buyer update error:", err);
+            return res.status(500).json({ 
+              message: "Sale recorded but failed to update buyer stats.",
+              error: err.message 
+            });
+          }
           res.status(201).json({ message: "Sale recorded and buyer updated!" });
         }
       );
